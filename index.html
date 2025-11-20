@@ -528,6 +528,43 @@
       iconGrid.appendChild(card);
     }
 
+    async function pngToIco(pngBlob) {
+      const pngBuffer = await pngBlob.arrayBuffer();
+      const pngSize = pngBuffer.byteLength;
+
+      // Create ICO Header (6 bytes) + Directory Entry (16 bytes) = 22 bytes
+      const headerSize = 22;
+      const totalSize = headerSize + pngSize;
+      const buffer = new ArrayBuffer(totalSize);
+      const view = new DataView(buffer);
+
+      // ICO Header
+      view.setUint16(0, 0, true); // Reserved
+      view.setUint16(2, 1, true); // Type: 1 (Icon)
+      view.setUint16(4, 1, true); // Count: 1 image
+
+      // Directory Entry
+      // Get width/height from filename (assuming it's in generatedBlobs) or just assume 32x32 if we used that source
+      // Since we'll pass the 32x32 blob, we can hardcode 32 for simplicity or read PNG header if needed.
+      // But wait, pngBlob doesn't have dimensions metadata attached directly here unless we pass it.
+      // For favicon.ico standard 32x32, we will assume the input is 32x32.
+
+      view.setUint8(6, 32); // Width
+      view.setUint8(7, 32); // Height
+      view.setUint8(8, 0);  // Color count (0 if >= 8bpp)
+      view.setUint8(9, 0);  // Reserved
+      view.setUint16(10, 1, true); // Planes
+      view.setUint16(12, 32, true); // Bit count
+      view.setUint32(14, pngSize, true); // Size of image data
+      view.setUint32(18, headerSize, true); // Offset of image data
+
+      // Copy PNG data
+      const uint8View = new Uint8Array(buffer);
+      uint8View.set(new Uint8Array(pngBuffer), headerSize);
+
+      return new Blob([buffer], { type: 'image/x-icon' });
+    }
+
     async function downloadAsZip() {
       if (generatedBlobs.length === 0) return;
 
@@ -538,6 +575,19 @@
 
       const zip = new JSZip();
       const folder = zip.folder("icons");
+
+      // Find 32x32 blob for favicon.ico
+      const faviconSource = generatedBlobs.find(b => b.name.includes('32x32'));
+
+      if (faviconSource) {
+        try {
+          const icoBlob = await pngToIco(faviconSource.blob);
+          folder.file("favicon.ico", icoBlob);
+        } catch (e) {
+          console.error("Error generating favicon.ico", e);
+        }
+      }
+
       generatedBlobs.forEach(item => {
         folder.file(item.name, item.blob);
       });
